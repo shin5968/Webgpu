@@ -16,7 +16,7 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      # 1. RDP 활성화 및 암호 설정
+      # 1. RDP 서비스 활성화 및 관리자 비밀번호 변경
       - name: Enable RDP & Set Password
         shell: powershell
         run: |
@@ -25,18 +25,19 @@ jobs:
           $Password = convertto-securestring "${{ github.event.inputs.rdp_password }}" -asplaintext -force
           Set-LocalUser -Name "runneradmin" -Password $Password
 
-      # 2. Chocolatey로 ngrok 설치 및 인증
+      # 2. ngrok 공식 ZIP 직접 다운로드 및 인증 (Chocolatey 우회)
       - name: Install and Setup ngrok
         shell: powershell
         run: |
-          choco install ngrok -y
-          ngrok config add-authtoken ${{ secrets.NGROK_AUTH_TOKEN }}
+          Invoke-WebRequest -Uri "https://bin.equinox.io/c/b322815E5b/ngrok-v3-stable-windows-amd64.zip" -OutFile "ngrok.zip"
+          Expand-Archive -Path "ngrok.zip" -DestinationPath "." -Force
+          .\ngrok.exe config add-authtoken ${{ secrets.NGROK_AUTH_TOKEN }}
 
       # 3. RDP 포트(3389)를 TCP 터널로 개방
       - name: Start ngrok Tunnel
         shell: powershell
         run: |
-          Start-Process -FilePath "ngrok" -ArgumentList "tcp 3389" -WindowStyle Hidden
+          Start-Process -FilePath ".\ngrok.exe" -ArgumentList "tcp 3389" -WindowStyle Hidden
           Start-Sleep -Seconds 5
 
       # 4. 접속용 외부 IP 및 포트 주소 추출
