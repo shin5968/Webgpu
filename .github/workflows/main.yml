@@ -1,4 +1,4 @@
-name: Ngrok Windows RDP
+name: Localtunnel Windows RDP
 
 on:
   workflow_dispatch:
@@ -16,7 +16,7 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      # 1. RDP 서비스 활성화 및 관리자 비밀번호 변경
+      # 1. RDP 활성화 및 비밀번호 설정
       - name: Enable RDP & Set Password
         shell: powershell
         run: |
@@ -25,62 +25,27 @@ jobs:
           $Password = convertto-securestring "${{ github.event.inputs.rdp_password }}" -asplaintext -force
           Set-LocalUser -Name "runneradmin" -Password $Password
 
-      # 2. ngrok v3 공식 CDN 다운로드 및 인증
-      - name: Install and Setup ngrok
+      # 2. Node.js 패키지로 localtunnel 설치 및 RDP 터널 실행
+      - name: Install and Start Localtunnel
         shell: powershell
         run: |
-          Invoke-WebRequest -Uri "https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-windows-amd64.zip" -OutFile "ngrok.zip"
-          Expand-Archive -Path "ngrok.zip" -DestinationPath "." -Force
-          
-          $authToken = "${{ secrets.NGROK_AUTH_TOKEN }}"
-          if ([string]::IsNullOrWhiteSpace($authToken)) {
-              # Secret에 토큰이 없다면 아래 따옴표 안에 직접 토큰을 입력하세요.
-              $authToken = "여기에_NGROK_토큰_입력"
-          }
-          .\ngrok.exe config add-authtoken $authToken
+          npm install -g localtunnel
+          Start-Process -FilePath "cmd.exe" -ArgumentList "/c lt --port 3389 > lt.log 2>&1"
+          Start-Sleep -Seconds 7
 
-      # 3. RDP 포트(3389)를 TCP 터널로 개방 및 안정적 시작 대기
-      - name: Start ngrok Tunnel
-        shell: powershell
-        run: |
-          Start-Process -FilePath ".\ngrok.exe" -ArgumentList "tcp 3389 --log=stdout" -WindowStyle Hidden
-          Write-Host "Waiting for ngrok to initialize..."
-          Start-Sleep -Seconds 10
-
-      # 4. 접속용 외부 IP 및 포트 주소 추출 (재시도 로직 추가)
+      # 3. 접속 주소 추출
       - name: Get RDP Address
         shell: powershell
         run: |
-          $retryCount = 0
-          $maxRetries = 10
-          $publicUrl = ""
-
-          while ($retryCount -lt $maxRetries) {
-              try {
-                  $response = Invoke-RestMethod -Uri "http://127.0.0.1:4040/api/tunnels" -ErrorAction Stop
-                  if ($response.tunnels -and $response.tunnels.Length -gt 0) {
-                      $publicUrl = $response.tunnels[0].public_url.Replace("tcp://", "")
-                      break
-                  }
-              } catch {
-                  Write-Host "Waiting for ngrok API to respond... ($($retryCount + 1)/$maxRetries)"
-                  Start-Sleep -Seconds 3
-                  $retryCount++
-              }
-          }
-
-          if ([string]::IsNullOrWhiteSpace($publicUrl)) {
-              Write-Error "Failed to retrieve ngrok public URL. Check if ngrok AuthToken is valid."
-              exit 1
-          }
-
+          Get-Content lt.log | Write-Host
+          $ltUrl = (Get-Content lt.log | Select-String "your url is:").ToString().Replace("your url is: https://", "").Trim()
           Write-Host "==============================================" -ForegroundColor Green
-          Write-Host " RDP Address  : $publicUrl" -ForegroundColor Yellow
+          Write-Host " RDP Address  : $ltUrl:3389" -ForegroundColor Yellow
           Write-Host " RDP Username : runneradmin" -ForegroundColor Yellow
           Write-Host " RDP Password : ${{ github.event.inputs.rdp_password }}" -ForegroundColor Yellow
           Write-Host "==============================================" -ForegroundColor Green
 
-      # 5. 세션 유지 (6시간)
+      # 4. 세션 유지 (6시간)
       - name: Keep Alive Session
         shell: powershell
         run: |
