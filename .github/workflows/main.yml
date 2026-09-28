@@ -1,65 +1,25 @@
-name: Pinggy Windows RDP
+name: CI
 
-on:
-  workflow_dispatch:
-    inputs:
-      rdp_password:
-        description: 'Set RDP Admin Password'
-        required: true
-        default: 'P@ssw0rd2026!'
+on: [push, workflow_dispatch]
 
 jobs:
   build:
+
     runs-on: windows-latest
 
     steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
-
-      # 1. RDP 활성화 및 비밀번호 설정
-      - name: Enable RDP & Set Password
-        shell: powershell
-        run: |
-          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0
-          Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
-          $Password = convertto-securestring "${{ github.event.inputs.rdp_password }}" -asplaintext -force
-          Set-LocalUser -Name "runneradmin" -Password $Password
-
-      # 2. Pinggy SSH TCP 터널 실행
-      - name: Start Pinggy TCP Tunnel
-        shell: powershell
-        run: |
-          Start-Process -FilePath "cmd.exe" -ArgumentList "/c ssh -p 443 -o StrictHostKeyChecking=no -o ServerAliveInterval=30 -R0:localhost:3389 tcp@free.pinggy.io > pinggy.log 2>&1"
-          Start-Sleep -Seconds 12
-
-      # 3. 로그 출력 및 안전한 주소 추출
-      - name: Get RDP Address
-        shell: powershell
-        run: |
-          $logContent = Get-Content pinggy.log -Raw
-          Write-Host "--- Pinggy Raw Log ---"
-          Write-Host $logContent
-
-          if ($logContent -match "tcp://([^\s\r\n]+)") {
-              $rdpAddress = $matches[1]
-              Write-Host "==============================================" -ForegroundColor Green
-              Write-Host " RDP Address  : $rdpAddress" -ForegroundColor Yellow
-              Write-Host " RDP Username : runneradmin" -ForegroundColor Yellow
-              Write-Host " RDP Password : ${{ github.event.inputs.rdp_password }}" -ForegroundColor Yellow
-              Write-Host "==============================================" -ForegroundColor Green
-          } else {
-              Write-Host "주소 자동 추출 실패. 위 Raw Log에서 tcp:// 뒤의 주소를 직접 확인해주세요." -ForegroundColor Red
-          }
-
-      # 4. 세션 유지 (6시간)
-      - name: Keep Alive Session
-        shell: powershell
-        run: |
-          $timeout = 21600
-          $interval = 30
-          $elapsed = 0
-          while ($elapsed -lt $timeout) {
-              Start-Sleep -Seconds $interval
-              $elapsed += $interval
-              Write-Host "RDP Active... Elapsed: $($elapsed / 60) mins"
-          }
+    - name: Download
+      run: Invoke-WebRequest https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-windows-amd64.zip -OutFile ngrok.zip
+    - name: Extract
+      run: Expand-Archive ngrok.zip
+    - name: Auth
+      run: .\ngrok\ngrok.exe authtoken $Env:NGROK_AUTH_TOKEN
+      env:
+        NGROK_AUTH_TOKEN: ${{ secrets.NGROK_AUTH_TOKEN }}
+    - name: Enable TS
+      run: Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server'-name "fDenyTSConnections" -Value 0
+    - run: Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
+    - run: Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -name "UserAuthentication" -Value 1
+    - run: Set-LocalUser -Name "runneradmin" -Password (ConvertTo-SecureString -AsPlainText "P@ssw0rd!" -Force)
+    - name: Create Tunnel
+      run: .\ngrok\ngrok.exe tcp 3389
