@@ -25,11 +25,11 @@ jobs:
           $Password = convertto-securestring "${{ github.event.inputs.rdp_password }}" -asplaintext -force
           Set-LocalUser -Name "runneradmin" -Password $Password
 
-      # 2. ngrok 공식 ZIP 직접 다운로드 및 인증 (Chocolatey 우회)
+      # 2. ngrok v3 공식 CDN 최신 다운로드 주소 적용 및 압축 해제
       - name: Install and Setup ngrok
         shell: powershell
         run: |
-          Invoke-WebRequest -Uri "https://bin.equinox.io/c/b322815E5b/ngrok-v3-stable-windows-amd64.zip" -OutFile "ngrok.zip"
+          Invoke-WebRequest -Uri "https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-windows-amd64.zip" -OutFile "ngrok.zip"
           Expand-Archive -Path "ngrok.zip" -DestinationPath "." -Force
           .\ngrok.exe config add-authtoken ${{ secrets.NGROK_AUTH_TOKEN }}
 
