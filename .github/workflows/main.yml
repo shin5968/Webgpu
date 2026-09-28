@@ -1,0 +1,65 @@
+name: Ngrok Windows RDP
+
+on:
+  workflow_dispatch:
+    inputs:
+      rdp_password:
+        description: 'Set RDP Admin Password'
+        required: true
+        default: 'P@ssw0rd2026!'
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      # 1. RDP 활성화 및 암호 설정
+      - name: Enable RDP & Set Password
+        shell: powershell
+        run: |
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0
+          Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
+          $Password = convertto-securestring "${{ github.event.inputs.rdp_password }}" -asplaintext -force
+          Set-LocalUser -Name "runneradmin" -Password $Password
+
+      # 2. Chocolatey로 ngrok 설치 및 인증
+      - name: Install and Setup ngrok
+        shell: powershell
+        run: |
+          choco install ngrok -y
+          ngrok config add-authtoken ${{ secrets.NGROK_AUTH_TOKEN }}
+
+      # 3. RDP 포트(3389)를 TCP 터널로 개방
+      - name: Start ngrok Tunnel
+        shell: powershell
+        run: |
+          Start-Process -FilePath "ngrok" -ArgumentList "tcp 3389" -WindowStyle Hidden
+          Start-Sleep -Seconds 5
+
+      # 4. 접속용 외부 IP 및 포트 주소 추출
+      - name: Get RDP Address
+        shell: powershell
+        run: |
+          $response = Invoke-RestMethod -Uri "http://127.0.0.1:4040/api/tunnels"
+          $publicUrl = $response.tunnels[0].public_url.Replace("tcp://", "")
+          Write-Host "==============================================" -ForegroundColor Green
+          Write-Host " RDP Address  : $publicUrl" -ForegroundColor Yellow
+          Write-Host " RDP Username : runneradmin" -ForegroundColor Yellow
+          Write-Host " RDP Password : ${{ github.event.inputs.rdp_password }}" -ForegroundColor Yellow
+          Write-Host "==============================================" -ForegroundColor Green
+
+      # 5. 세션 유지 (6시간)
+      - name: Keep Alive Session
+        shell: powershell
+        run: |
+          $timeout = 21600
+          $interval = 30
+          $elapsed = 0
+          while ($elapsed -lt $timeout) {
+              Start-Sleep -Seconds $interval
+              $elapsed += $interval
+              Write-Host "RDP Active... Elapsed: $($elapsed / 60) mins"
+          }
