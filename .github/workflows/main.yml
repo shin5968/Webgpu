@@ -1,4 +1,4 @@
-name: Cloudflare Windows RDP
+name: Serveo Windows RDP
 
 on:
   workflow_dispatch:
@@ -25,39 +25,33 @@ jobs:
           $Password = convertto-securestring "${{ github.event.inputs.rdp_password }}" -asplaintext -force
           Set-LocalUser -Name "runneradmin" -Password $Password
 
-      # 2. cloudflared 다운로드 및 설치
-      - name: Install Cloudflare Tunnel
+      # 2. Serveo SSH RAW TCP 터널 실행
+      - name: Start Serveo TCP Tunnel
         shell: powershell
         run: |
-          Invoke-WebRequest -Uri "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe" -OutFile "cloudflared.exe"
-
-      # 3. Cloudflare 임시 TCP 터널 실행
-      - name: Start Cloudflare Tunnel
-        shell: powershell
-        run: |
-          Start-Process -FilePath ".\cloudflared.exe" -ArgumentList "tunnel --url tcp://localhost:3389" -RedirectStandardError "cloudflared.log"
+          Start-Process -FilePath "cmd.exe" -ArgumentList "/c ssh -o StrictHostKeyChecking=no -o ServerAliveInterval=30 -R 0:localhost:3389 serveo.net > serveo.log 2>&1"
           Start-Sleep -Seconds 10
 
-      # 4. 접속 주소 추출
+      # 3. 접속 주소 및 포트 추출
       - name: Get RDP Address
         shell: powershell
         run: |
-          $logContent = Get-Content cloudflared.log -Raw
-          Write-Host "--- Cloudflare Raw Log ---"
+          $logContent = Get-Content serveo.log -Raw
+          Write-Host "--- Serveo Raw Log ---"
           Write-Host $logContent
 
-          if ($logContent -match "https://([a-zA-Z0-9-]+\.trycloudflare\.com)") {
-              $tunnelUrl = $matches[1]
+          if ($logContent -match "Forwarding HTTP traffic from|Forwarding TCP traffic from|from tcp://([^\s:]+:[\d]+)") {
+              $line = (Select-String -Path serveo.log -Pattern "serveo.net:").Line
               Write-Host "==============================================" -ForegroundColor Green
-              Write-Host " Cloudflare Host : $tunnelUrl" -ForegroundColor Yellow
-              Write-Host " RDP Username    : runneradmin" -ForegroundColor Yellow
-              Write-Host " RDP Password    : ${{ github.event.inputs.rdp_password }}" -ForegroundColor Yellow
+              Write-Host " Raw Output : $line" -ForegroundColor Yellow
+              Write-Host " RDP Username : runneradmin" -ForegroundColor Yellow
+              Write-Host " RDP Password : ${{ github.event.inputs.rdp_password }}" -ForegroundColor Yellow
               Write-Host "==============================================" -ForegroundColor Green
           } else {
-              Write-Host "주소 자동 추출 실패. Raw Log에서 .trycloudflare.com 주소를 확인하세요." -ForegroundColor Red
+              Write-Host "로그 전문을 확인하세요."
           }
 
-      # 5. 세션 유지 (6시간)
+      # 4. 세션 유지 (6시간)
       - name: Keep Alive Session
         shell: powershell
         run: |
