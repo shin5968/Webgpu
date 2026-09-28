@@ -1,4 +1,4 @@
-name: Localtunnel Windows RDP
+name: Pinggy Windows RDP
 
 on:
   workflow_dispatch:
@@ -25,25 +25,30 @@ jobs:
           $Password = convertto-securestring "${{ github.event.inputs.rdp_password }}" -asplaintext -force
           Set-LocalUser -Name "runneradmin" -Password $Password
 
-      # 2. Node.js 패키지로 localtunnel 설치 및 RDP 터널 실행
-      - name: Install and Start Localtunnel
+      # 2. Pinggy SSH TCP 터널 실행 (가입/토큰 필요없음)
+      - name: Start Pinggy TCP Tunnel
         shell: powershell
         run: |
-          npm install -g localtunnel
-          Start-Process -FilePath "cmd.exe" -ArgumentList "/c lt --port 3389 > lt.log 2>&1"
-          Start-Sleep -Seconds 7
+          Start-Process -FilePath "cmd.exe" -ArgumentList "/c ssh -p 443 -o StrictHostKeyChecking=no -o ServerAliveInterval=30 -R0:localhost:3389 tcp@free.pinggy.io > pinggy.log 2>&1"
+          Start-Sleep -Seconds 8
 
-      # 3. 접속 주소 추출
+      # 3. 접속 주소 추출 및 출력
       - name: Get RDP Address
         shell: powershell
         run: |
-          Get-Content lt.log | Write-Host
-          $ltUrl = (Get-Content lt.log | Select-String "your url is:").ToString().Replace("your url is: https://", "").Trim()
-          Write-Host "==============================================" -ForegroundColor Green
-          Write-Host " RDP Address  : $ltUrl:3389" -ForegroundColor Yellow
-          Write-Host " RDP Username : runneradmin" -ForegroundColor Yellow
-          Write-Host " RDP Password : ${{ github.event.inputs.rdp_password }}" -ForegroundColor Yellow
-          Write-Host "==============================================" -ForegroundColor Green
+          Get-Content pinggy.log | Write-Host
+          $rawAddr = (Get-Content pinggy.log | Select-String "tcp://").ToString()
+          if ($rawAddr -match "tcp://([^:\s]+:[\d]+)") {
+              $rdpAddress = $matches[1]
+              Write-Host "==============================================" -ForegroundColor Green
+              Write-Host " RDP Address  : $rdpAddress" -ForegroundColor Yellow
+              Write-Host " RDP Username : runneradmin" -ForegroundColor Yellow
+              Write-Host " RDP Password : ${{ github.event.inputs.rdp_password }}" -ForegroundColor Yellow
+              Write-Host "==============================================" -ForegroundColor Green
+          } else {
+              Write-Error "Failed to parse Pinggy address."
+              exit 1
+          }
 
       # 4. 세션 유지 (6시간)
       - name: Keep Alive Session
